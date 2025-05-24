@@ -1,697 +1,759 @@
-# A Deep Dive into Modern Java Server Models: MVC, Quarkus, Spring WebFlux, RESTEasy Reactive, Vert.x, gRPC, GraphQL, and Spring MVC with/without Virtual Threads
-
-**Author:** [Your Name]  
-**Audience:** Software Architects, Senior Java Developers  
-**Scenario:** Design a SOAP-to-JSON API under heavy IO load (1-core CPU, 4GB RAM, 40M req/day, P95 latency 4-10s, event-streaming for some APIs).  
-**Format:** Modular sections; diagrams and tables; code snippets; Kubernetes sizing; real-world constraints.
+# A Deep Dive into Modern Java Server Models  
+**MVC, Quarkus, Spring WebFlux, RESTEasy Reactive, Vert.x, gRPC, GraphQL, and Spring MVC (with/without Virtual Threads)**
 
 ---
 
 ## Table of Contents
 
-- [Introduction](#introduction)
-- [Common Scenario & Constraints](#common-scenario--constraints)
-- [Technology Sections](#technology-sections)
-  - [Spring MVC (Traditional & with Virtual Threads)](#spring-mvc-traditional--with-virtual-threads)
-  - [Quarkus (RESTEasy & RESTEasy Reactive)](#quarkus-resteasy--resteasy-reactive)
-  - [Spring WebFlux](#spring-webflux)
-  - [Vert.x](#vertx)
-  - [gRPC](#grpc)
-  - [GraphQL](#graphql)
-- [Cross-Model Media Type Performance Comparison](#cross-model-media-type-performance-comparison)
-- [Summary Table & Recommendations](#summary-table--recommendations)
-- [References](#references)
+1. [Introduction & Scenario](#introduction--scenario)
+2. [Model Sections](#model-sections)
+    - [Traditional MVC (Servlet)](#traditional-mvc-servlet)
+    - [Spring MVC with Virtual Threads](#spring-mvc-with-virtual-threads)
+    - [Quarkus (RESTEasy & RESTEasy Reactive)](#quarkus-resteasy--resteasy-reactive)
+    - [Spring WebFlux](#spring-webflux)
+    - [Vert.x](#vertx)
+    - [gRPC](#grpc)
+    - [GraphQL](#graphql)
+3. [Cross-Model Comparison](#cross-model-comparison)
+    - [Kubernetes Sizing](#kubernetes-sizing)
+    - [Performance Comparison by Media Type](#performance-comparison-by-media-type)
+    - [Summary Table & Recommendation Matrix](#summary-table--recommendation-matrix)
+4. [References](#references)
 
 ---
 
-## Introduction
+## Introduction & Scenario
 
-Modern Java server frameworks offer various concurrency and IO models, each with different trade-offs in thread usage, scalability, and suitability for high-latency, high-throughput workloads. This post provides a technical deep-dive into the most popular models and frameworks, focusing on how they handle a real-world, IO-heavy SOAP-to-JSON transformation workload under severe hardware constraints.
+This post offers a deep technical comparison of modern Java server models for high-latency, high-throughput IO workloads—specifically, a SOAP-to-JSON API on a server with **1-core CPU and 4GB RAM**, handling:
+
+- **40 million requests/day** (P95 latency: 4–10s/request)
+- **Each request**: makes a third-party call (10–60s latency, e.g. SOAP)
+- **Streaming/Event-driven APIs**: 10 million requests/day
+- **Media types**: JSON, XML, CBOR, Protobuf, GraphQL, NDJSON, YAML, PDF, images, multipart, event-stream, text, markdown, atom, RSS, etc.
+
+For each model, we’ll examine:
+
+- Internal execution (threading, event loop, blocking/non-blocking IO)
+- Sequence diagrams (with kernel threads, virtual threads, IO ops)
+- Kubernetes sizing (pods needed for the above load)
+- Performance, pros/cons, and suitability (especially for SOAP-to-JSON transformation)
+- Media type handling
+- Code snippets for thread/async handling
 
 ---
 
-## Common Scenario & Constraints
-
-- **Hardware:** 1-core CPU, 4GB RAM per pod
-- **Traffic:** 40M requests/day (~463 req/s avg), P95 latency 4–10s per request
-- **Processing:** Each request does a blocking third-party SOAP call, transforms the XML to JSON, and responds.
-- **Streaming APIs:** 10M requests/day event-streamed; rest are standard HTTP.
-- **Kubernetes:** Sizing required for the above load.
-- **Media Types:** JSON, XML, CBOR, Protobuf, GraphQL, NDJSON, YAML, PDF, images, multipart, event-stream, plain text, markdown, atom, RSS, etc.
-
----
-
-## Technology Sections
+## Model Sections
 
 Each section follows this structure:
 
-1. Overview
-2. Internal Execution Model
-3. Threading (platform, virtual, event loop)
-4. Blocking vs. Non-blocking IO
-5. Sequence Diagram
-6. Request Lifecycle (with SOAP-to-JSON)
-7. Resource Utilization (CPU, Memory, Threads)
-8. Kubernetes Sizing Calculation
-9. Performance with Different Media Types
-10. Pros and Cons
-11. Best Use Cases
+- Overview
+- Internal Execution Model
+- Threading (platform, virtual, event loop, etc.)
+- Blocking vs. Non-blocking IO
+- Sequence Diagram (with blocking/non-blocking, kernel/virtual threads, SOAP call, etc.)
+- Request Lifecycle (SOAP-to-JSON)
+- Resource Utilization (CPU, Memory, Threads)
+- Kubernetes Sizing Calculation
+- Performance with Different Media Types
+- Pros and Cons
+- Best Use Cases
 
 ---
 
-### Spring MVC (Traditional & with Virtual Threads)
+### Traditional MVC (Servlet)
 
-#### 1. Overview
+#### Overview
 
-Spring MVC is the classic Java Servlet-based web framework. By default, it uses a thread-per-request model backed by a thread pool (usually Tomcat/Jetty). With JDK 21+, it can leverage virtual threads, dramatically altering resource usage patterns.
+- **Technology:** Spring MVC, Jakarta EE Servlets
+- **Execution:** Synchronous, request-per-thread (platform threads)
 
-#### 2. Internal Execution Model
+#### Internal Execution Model
 
-- **Traditional:** Each HTTP request is assigned a platform thread from a pool.
-- **With Virtual Threads:** Each HTTP request is assigned a lightweight virtual thread.
+- Each HTTP request is handled by a **dedicated platform thread** from a pool.
+- The thread is blocked during IO (e.g., SOAP call).
+- Thread-pool size = max concurrent requests.
 
-#### 3. Threading
+#### Threading
 
-| Model                   | Thread Type        | Thread Usage        |
-|-------------------------|-------------------|---------------------|
-| Traditional             | Platform (kernel) | 1 per concurrent req|
-| With Virtual Threads    | Virtual           | 1 per concurrent req, but much lighter |
+- **Platform Threads:** 1:1 mapping with kernel threads.
+- Typical pool: 100–400 threads (CPU/memory bound).
+- Blocking IO: thread blocked during network call.
 
-#### 4. Blocking vs. Non-blocking IO
+#### Blocking vs. Non-blocking IO
 
-- **Traditional:** Blocking. Each thread waits for IO (e.g., SOAP call).
-- **Virtual Threads:** Still blocking, but threads are cheap; kernel threads only needed during actual IO operations.
+- **Blocking IO:** Each thread waits for IO (network, SOAP).
+- Inefficient for high-latency calls.
 
-#### 5. Sequence Diagram
+#### Sequence Diagram
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant HTTP_Server
-    participant (Virtual) Thread
-    participant Kernel_Thread
-    participant SOAP_Service
+    participant ServerThread
+    participant KernelThread
+    participant ThirdPartySOAP
 
-    Client->>HTTP_Server: HTTP Request
-    HTTP_Server->>+(Virtual) Thread: Assign thread
-    (Virtual) Thread->>Kernel_Thread: Block on SOAP IO
-    Kernel_Thread->>SOAP_Service: SOAP Request
-    SOAP_Service-->>Kernel_Thread: SOAP Response (XML)
-    Kernel_Thread-->>(Virtual) Thread: Unblock
-    (Virtual) Thread->>HTTP_Server: Transform to JSON, respond
-    HTTP_Server-->>Client: HTTP Response (JSON)
+    Client->>ServerThread: HTTP Request
+    ServerThread->>KernelThread: Process request
+    KernelThread->>ThirdPartySOAP: SOAP HTTP Call (Blocking)
+    ThirdPartySOAP-->>KernelThread: SOAP Response
+    KernelThread->>ServerThread: Transform SOAP to JSON
+    ServerThread->>Client: HTTP Response
 ```
+- **Blocking Points:** KernelThread waits during SOAP call (occupies thread).
 
-- **Blocking Points:** During SOAP call.
-- **Kernel Thread Usage:** In virtual thread model, kernel threads are only occupied during actual IO (see [Loom docs](https://openjdk.org/projects/loom/)).
+#### Request Lifecycle (SOAP-to-JSON)
 
-#### 6. Request Lifecycle (SOAP-to-JSON)
+1. HTTP request arrives, assigned a thread.
+2. Thread calls SOAP (blocking).
+3. On response, transforms to JSON, returns to client.
 
-```java
-@RestController
-public class SoapToJsonController {
-    @GetMapping("/api/data")
-    public Map<String, Object> handle() {
-        // This blocks the thread (platform or virtual)
-        String xml = callSoapServiceBlocking();
-        return parseXmlToJson(xml);
-    }
-}
+#### Resource Utilization
+
+- **CPU:** Underutilized (threads mostly waiting on IO)
+- **Memory:** High (each thread ~1MB stack)
+- **Threads:** Pool size must match max concurrent requests.
+
+#### Kubernetes Sizing Calculation
+
+- **Throughput:** 40M/day ≈ 463 req/sec peak
+- **Concurrency:** P95 = 10s → ~4630 concurrent requests
+- **Threads needed:** 4630 (not feasible for 1-core/4GB; OOM & thread scheduler thrash)
+- **Pods needed:** 
+  - Each pod: ~300 threads before resource exhaustion
+  - `4630/300 ≈ 16 pods`
+- **But:** 1-core CPU can’t run 300 threads efficiently – kernel thread context switching overhead dominates.
+
+#### Performance with Media Types
+
+| Media Type        | Support | Latency | Memory | Notes |
+|-------------------|---------|---------|--------|-------|
+| JSON, XML         | ✔️      | High    | High   | Native, but serialization can be slow for large payloads |
+| Protobuf, CBOR    | ❌/⚠️   | N/A     | N/A    | Needs extra libs, not idiomatic |
+| Images/PDF        | ✔️      | High    | High   | Streams, but blocks thread |
+| NDJSON/EventStream| ✔️      | High    | High   | Thread held for stream |
+| Multipart         | ✔️      | High    | High   | Blocking |
+| YAML, Atom, RSS   | ✔️      | High    | High   | Blocking |
+| GraphQL           | ⚠️      | High    | High   | Not a native fit |
+
+#### Pros and Cons
+
+| Pros                                  | Cons                                               |
+|----------------------------------------|----------------------------------------------------|
+| Simplicity, mature ecosystem           | Not scalable for IO-bound workloads                |
+| Easy to debug                          | High thread/memory overhead                        |
+| Wide media-type support                | Thread pool exhaustion, bad for long-latency APIs  |
+| Good for CPU-bound, low-latency APIs   |                                                    |
+
+#### Best Use Cases
+
+- Small, CPU-bound APIs
+- Low request concurrency
+- Short IO calls
+
+---
+
+### Spring MVC with Virtual Threads
+
+#### Overview
+
+- **Technology:** Spring MVC + Java Virtual Threads (Project Loom)
+- **Execution:** One virtual thread per request (much lighter than platform threads)
+
+#### Internal Execution Model
+
+- Virtual threads multiplexed onto a small pool of platform threads by JVM scheduler.
+- Blocking IO suspends virtual thread, platform thread can serve others.
+
+#### Threading
+
+- **Virtual Threads:** Thousands–millions possible.
+- Platform threads ~1 per core.
+
+#### Blocking vs. Non-blocking IO
+
+- **Blocking IO:** But only virtual thread is blocked (not kernel thread).
+- Platform threads reused efficiently.
+
+#### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant VirtualThread
+    participant PlatformThread
+    participant KernelThread
+    participant ThirdPartySOAP
+
+    Client->>VirtualThread: HTTP Request
+    VirtualThread->>PlatformThread: Schedules work
+    PlatformThread->>KernelThread: Starts IO
+    KernelThread->>ThirdPartySOAP: SOAP HTTP Call
+    ThirdPartySOAP-->>KernelThread: SOAP Response
+    KernelThread->>PlatformThread: Notify IO complete
+    PlatformThread->>VirtualThread: Resume work
+    VirtualThread->>Client: HTTP Response
 ```
+- **Blocking Point:** Virtual thread blocks, platform thread free for others.
 
-#### 7. Resource Utilization
+#### Request Lifecycle (SOAP-to-JSON)
 
-- **Traditional:** If there are 100 concurrent requests (all waiting on IO), need ~100 platform threads.
-- **Virtual:** Can easily handle 1000s of concurrent requests, limited mainly by heap and kernel threads for IO.
+1. HTTP request assigned a virtual thread.
+2. Virtual thread blocks on SOAP call.
+3. On response, resumes, transforms, responds.
 
-#### 8. Kubernetes Sizing Calculation
+#### Resource Utilization
 
-**Assumptions:**
-- 40M req/day ≈ 463 rps avg; peak could be 2x (≈900 rps).
-- Each request occupies thread for 4–10s (P95).
+- **CPU:** Efficient use, minimal context-switching
+- **Memory:** Lower (virtual thread stack ~few KB)
+- **Threads:** 100,000s possible
 
-**Max Concurrent Requests:**  
-`max_concurrent = rps * latency = 900 * 10 = 9000`
+#### Kubernetes Sizing Calculation
 
-- **Traditional:** Need 9000 platform threads → not feasible on 1-core/4GB pod (Tomcat default max is 200).
-- **Virtual:** 9000 virtual threads is feasible. Kernel threads spike only during network IO.
+- **Throughput/Concurrency:** Same as above (4630 concurrent)
+- **Threads needed:** 4630 virtual threads (~few MB RAM total)
+- **Pods needed:** 
+  - 1-core CPU: platform threads not oversubscribed
+  - Likely 2–3 pods sufficient (RAM is not a limit; CPU is)
 
-**Pod Sizing Table:**
+#### Performance with Media Types
 
-| Model          | Max Concurrent | Threads Needed | Pods Required (peak) |
-|----------------|----------------|---------------|----------------------|
-| Traditional    | ~200           | ~200          | 45                   |
-| Virtual Loom   | ~9000          | ~9000 virtual | 1–2                  |
+| Media Type        | Support | Latency | Memory | Notes |
+|-------------------|---------|---------|--------|-------|
+| JSON, XML         | ✔️      | Med     | Low    | Native, non-blocking for serialization |
+| Protobuf, CBOR    | ✔️      | Med     | Low    | With libs |
+| Images/PDF        | ✔️      | Med     | Low    | Streams, but virtual thread suspends |
+| NDJSON/EventStream| ✔️      | Med     | Low    | Virtual thread per stream |
+| Multipart         | ✔️      | Med     | Low    | |
+| YAML, Atom, RSS   | ✔️      | Med     | Low    | |
+| GraphQL           | ✔️      | Med     | Low    | |
 
-#### 9. Media Type Performance
+#### Pros and Cons
 
-| Media Type         | Support | Deserialization Performance | Notes                                             |
-|--------------------|---------|----------------------------|---------------------------------------------------|
-| JSON               | ✔       | Fast                       | Native support, Jackson/Gson                      |
-| XML                | ✔       | Moderate                   | JAXB, Jackson-XML                                 |
-| CBOR, Protobuf     | ✔ (via modules) | Fast           | Needs extra libs                                  |
-| GraphQL            | ✖ (needs plugin) | N/A           | Not native                                        |
-| NDJSON, YAML       | ✔       | Moderate                   | Needs Jackson modules                             |
-| PDF, images        | ✔       | Slow                       | Handled as binary streams                         |
-| Multipart, streams | ✔       | Moderate/slow              | Servlet multipart, blocking by default            |
-| Atom/RSS/XML       | ✔       | Moderate                   | Standard support                                  |
+| Pros                                            | Cons                                             |
+|-------------------------------------------------|--------------------------------------------------|
+| Scales up IO-bound APIs easily                  | Still uses blocking APIs (not as efficient as pure async) |
+| Code remains simple (looks synchronous)         | Loom is new, some ecosystem support maturing     |
+| Dramatic reduction in memory/thread overhead    |                                                   |
 
-#### 10. Pros and Cons
+#### Best Use Cases
 
-| Pros                                            | Cons                                          |
-|-------------------------------------------------|-----------------------------------------------|
-| Simple, well-known, mature                      | Thread-per-request model wastes resources under high IO latency |
-| Easy to debug/blocking code                     | Not scalable with platform threads            |
-| Loom (virtual threads) makes blocking code scalable | Virtual threads are new, less battle-tested   |
-
-#### 11. Best Use Cases
-
-- **Traditional:** Small-scale, low-latency, low-concurrency.
-- **Virtual Threads:** High-latency IO, high concurrency, SOAP-to-JSON transformer, minimal code changes.
+- High-latency IO APIs (e.g., SOAP-to-JSON)
+- High concurrency, moderate CPU
 
 ---
 
 ### Quarkus (RESTEasy & RESTEasy Reactive)
 
-#### 1. Overview
+#### Overview
 
-Quarkus supports both traditional (RESTEasy) and reactive (RESTEasy Reactive) models, optimized for cloud-native and GraalVM. RESTEasy is thread-per-request; RESTEasy Reactive uses event loops and non-blocking IO.
+- **RESTEasy:** Traditional JAX-RS (blocking, servlet)
+- **RESTEasy Reactive:** Non-blocking, event-loop based
 
-#### 2. Internal Execution Model
+#### Internal Execution Model
 
-- **RESTEasy:** Servlet-based, thread-per-request.
-- **RESTEasy Reactive:** Event-loop, non-blocking, small thread pool for blocking tasks.
+- **RESTEasy:** Like servlet MVC (see above)
+- **RESTEasy Reactive:**
+    - Uses event loops for network IO
+    - Worker thread pool for blocking tasks (e.g., legacy IO)
 
-#### 3. Threading
+#### Threading
 
-| Model               | Threading      | Usage                                      |
-|---------------------|----------------|---------------------------------------------|
-| RESTEasy            | Platform       | Thread-per-request                          |
-| RESTEasy Reactive   | Event Loop + Worker | Event loop for non-blocking, offload blocking to worker threads |
+- **Reactive:** Event loops (~1 per core), async handlers
+- **Blocking:** Workers handle blocking code
 
-#### 4. Blocking vs. Non-blocking IO
+#### Blocking vs. Non-blocking IO
 
-- **RESTEasy:** Blocking.
-- **RESTEasy Reactive:** Non-blocking by default, blocking operations offloaded to worker pool.
+- **RESTEasy:** Fully blocking (see Traditional MVC)
+- **RESTEasy Reactive:** Non-blocking if possible; blocking operations dispatched to worker threads
 
-#### 5. Sequence Diagram (RESTEasy Reactive)
+#### Sequence Diagram (RESTEasy Reactive)
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant EventLoop
     participant WorkerThread
-    participant Kernel_Thread
-    participant SOAP_Service
+    participant ThirdPartySOAP
 
     Client->>EventLoop: HTTP Request
-    EventLoop->>WorkerThread: Offload blocking SOAP call
-    WorkerThread->>Kernel_Thread: Block on SOAP IO
-    Kernel_Thread->>SOAP_Service: SOAP Request
-    SOAP_Service-->>Kernel_Thread: SOAP Response (XML)
-    Kernel_Thread-->>WorkerThread: Unblock
-    WorkerThread->>EventLoop: Transform to JSON, respond
-    EventLoop-->>Client: HTTP Response (JSON)
+    EventLoop->>WorkerThread: Dispatch blocking SOAP call
+    WorkerThread->>ThirdPartySOAP: SOAP HTTP Call
+    ThirdPartySOAP-->>WorkerThread: SOAP Response
+    WorkerThread->>EventLoop: Callback with response
+    EventLoop->>Client: HTTP Response
 ```
+- **Blocking Point:** Worker thread blocked during SOAP call
 
-#### 6. Request Lifecycle (SOAP-to-JSON)
+#### Request Lifecycle (SOAP-to-JSON)
 
-```java
-@Path("/api")
-public class SoapResource {
-    @GET
-    @Path("/data")
-    @Blocking // for RESTEasy Reactive
-    public Uni<Response> getData() {
-        // blocking SOAP call, offloaded to worker thread
-        String xml = callSoapServiceBlocking();
-        return Uni.createFrom().item(parseXmlToJson(xml));
-    }
-}
-```
+1. Event loop receives request.
+2. If blocking IO, dispatch to worker.
+3. On response, callback to event loop, respond.
 
-#### 7. Resource Utilization
+#### Resource Utilization
 
-- **RESTEasy:** Same as Spring MVC Traditional.
-- **RESTEasy Reactive:** Event loop threads handle non-blocking; blocking calls consume worker threads (configurable pool).
+- **CPU:** Event loop minimal, worker pool size critical
+- **Memory:** Dependent on worker thread count (~256–512 safe)
+- **Threads:** Event loop + worker pool
 
-#### 8. Kubernetes Sizing
+#### Kubernetes Sizing Calculation
 
-- **RESTEasy:** Same as Spring MVC traditional (see table above).
-- **RESTEasy Reactive:** Number of worker threads determines max concurrency for blocking calls; can scale pool size, but beware context switching/CPU starvation.
+- **Concurrency:** Same as above (4630)
+- **Workers:** 256–512 per pod
+- **Pods needed:** 4630/400 ≈ 12 pods
 
-#### 9. Media Type Performance
+#### Performance with Media Types
 
-| Media Type      | RESTEasy Support | RESTEasy Reactive Support | Notes         |
-|-----------------|------------------|--------------------------|---------------|
-| JSON, XML, CBOR | ✔                | ✔                        | Native        |
-| Protobuf        | ✔ (with ext)     | ✔                        |               |
-| GraphQL         | ✖ (plugin)       | ✖ (plugin)               |               |
-| Streams         | Limited          | ✔ (reactive streams)     |               |
-| PDF, images     | ✔                | ✔                        |               |
+| Media Type        | Support | Latency | Memory | Notes |
+|-------------------|---------|---------|--------|-------|
+| JSON, XML         | ✔️      | Med     | Med    | Native, non-blocking if possible |
+| Protobuf, CBOR    | ✔️      | Med     | Med    | |
+| Images/PDF        | ✔️      | Med     | Med    | Streaming |
+| NDJSON/EventStream| ✔️      | Med     | Med    | |
+| Multipart         | ✔️      | Med     | Med    | |
+| YAML, Atom, RSS   | ✔️      | Med     | Med    | |
+| GraphQL           | ✔️      | Med     | Med    | Via extension |
 
-#### 10. Pros and Cons
+#### Pros and Cons
 
-| Pros                  | Cons                               |
-|-----------------------|------------------------------------|
-| Fast startup, low memory (Quarkus) | RESTEasy Reactive less mature |
-| RESTEasy Reactive: async, non-blocking | Need to mark blocking endpoints explicitly |
-| Good for native builds              | Offloaded blocking can still saturate pool |
+| Pros                                             | Cons                                                |
+|--------------------------------------------------|-----------------------------------------------------|
+| Reactive model for async/non-blocking code        | Blocking IO needs worker pool (limits scaling)      |
+| Fast cold start, native compilation (Quarkus)     | Code complexity for mixing blocking/non-blocking    |
+| Good media-type support                           |                                                     |
 
-#### 11. Best Use Cases
+#### Best Use Cases
 
-- **RESTEasy:** Legacy, simple IO.
-- **RESTEasy Reactive:** Cloud-native, high concurrency, mixed blocking/non-blocking, event APIs.
+- Mixed workloads (some async, some blocking IO)
+- Microservices with diverse endpoints
 
 ---
 
 ### Spring WebFlux
 
-#### 1. Overview
+#### Overview
 
-Spring WebFlux is a fully non-blocking, reactive web framework, built on Project Reactor. It uses event loops and backpressure to maximize resource usage.
+- **Technology:** Reactive, non-blocking, event-loop based
 
-#### 2. Internal Execution Model
+#### Internal Execution Model
 
-- Event loop + small worker pool.
-- Reactive streams principles (Publisher/Subscriber).
+- Uses Project Reactor (reactive streams)
+- Event loop handles HTTP, user code chains via async callbacks/futures
 
-#### 3. Threading
+#### Threading
 
-- Few threads (Netty event loops), backpressure-aware.
-- Blocking calls (e.g., SOAP) must be offloaded to a bounded elastic scheduler.
+- **Event Loop:** ~N threads (N = core count)
+- **No thread per request:** Requests are state machines, resume on IO completion
 
-#### 4. Blocking vs. Non-blocking IO
+#### Blocking vs. Non-blocking IO
 
-- **Non-blocking:** for in-memory and reactive endpoints.
-- **Blocking:** must be moved to dedicated thread pool (boundedElastic).
+- **Non-blocking IO:** All IO (HTTP, DB, SOAP with reactive client) is async; no thread blocked
+- **Blocking calls must be offloaded to worker pool** (should be avoided if possible)
 
-#### 5. Sequence Diagram
+#### Sequence Diagram
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant EventLoop
-    participant BoundedElastic
-    participant Kernel_Thread
-    participant SOAP_Service
+    participant SOAPClient
+    participant ThirdPartySOAP
 
     Client->>EventLoop: HTTP Request
-    EventLoop->>BoundedElastic: Offload blocking SOAP call
-    BoundedElastic->>Kernel_Thread: Block on SOAP IO
-    Kernel_Thread->>SOAP_Service: SOAP Request
-    SOAP_Service-->>Kernel_Thread: SOAP Response (XML)
-    Kernel_Thread-->>BoundedElastic: Unblock
-    BoundedElastic->>EventLoop: Transform to JSON, respond
-    EventLoop-->>Client: HTTP Response (JSON)
+    EventLoop->>SOAPClient: Async SOAP call (reactive)
+    SOAPClient->>ThirdPartySOAP: Non-blocking HTTP Call
+    ThirdPartySOAP-->>SOAPClient: SOAP Response
+    SOAPClient->>EventLoop: Callback with response
+    EventLoop->>Client: HTTP Response
 ```
+- **No thread is blocked during IO**
 
-#### 6. Request Lifecycle (SOAP-to-JSON)
+#### Request Lifecycle (SOAP-to-JSON)
 
-```java
-@GetMapping("/data")
-public Mono<Map<String, Object>> getData() {
-    return Mono.fromCallable(() -> callSoapServiceBlocking())
-        .subscribeOn(Schedulers.boundedElastic())
-        .map(this::parseXmlToJson);
-}
-```
+1. HTTP request mapped to state machine.
+2. Non-blocking SOAP client makes call; event loop free for others.
+3. On SOAP response, event loop resumes processing, transforms, responds.
 
-#### 7. Resource Utilization
+#### Resource Utilization
 
-- Small number of event loop threads.
-- Bounded elastic pool handles blocking IO (configurable, default 10x CPU count).
+- **CPU:** Very efficient (event loops only)
+- **Memory:** Minimal for concurrency
+- **Threads:** Event loop only (e.g., 4–8)
 
-#### 8. Kubernetes Sizing
+#### Kubernetes Sizing Calculation
 
-- **Blocking calls dominate:** Number of bounded elastic threads = max concurrent requests.
-- For 9000 concurrent, set pool size accordingly; pod count as per resource limits.
+- **Concurrency:** Can handle 10,000s of concurrent requests per pod
+- **Pods needed:** 2–3 (network/CPU is limit, not thread count)
 
-#### 9. Media Type Performance
+#### Performance with Media Types
 
-| Media Type        | Support | Notes                                  |
-|-------------------|---------|----------------------------------------|
-| JSON, XML         | ✔       | Native                                 |
-| Protobuf, CBOR    | ✔       | Needs extensions                       |
-| GraphQL           | ✖       | Needs plugin                           |
-| NDJSON, streams   | ✔       | Excellent for streaming                |
-| PDF, images       | ✔       | Handled as DataBuffer                  |
+| Media Type        | Support | Latency | Memory | Notes |
+|-------------------|---------|---------|--------|-------|
+| JSON, XML         | ✔️      | Low     | Low    | Native, optimized |
+| Protobuf, CBOR    | ✔️      | Low     | Low    | |
+| Images/PDF        | ✔️      | Low     | Low    | Streaming |
+| NDJSON/EventStream| ✔️      | Low     | Low    | Native support for streaming |
+| Multipart         | ✔️      | Low     | Low    | |
+| YAML, Atom, RSS   | ✔️      | Low     | Low    | |
+| GraphQL           | ✔️      | Low     | Low    | Via WebFlux extension |
 
-#### 10. Pros and Cons
+#### Pros and Cons
 
-| Pros                                          | Cons                            |
-|-----------------------------------------------|---------------------------------|
-| Extremely scalable non-blocking event loop    | Blocking IO needs careful offloading |
-| Native streaming support                      | Debugging reactive code is harder|
-| Backpressure-aware                            | High learning curve              |
+| Pros                                               | Cons                                      |
+|----------------------------------------------------|-------------------------------------------|
+| Handles massive concurrency                        | Steep learning curve (reactive paradigm)  |
+| Efficient resource usage                           | Debugging and stack traces harder         |
+| Native support for streaming/event APIs            | Not all libraries are reactive-compatible |
 
-#### 11. Best Use Cases
+#### Best Use Cases
 
-- Streaming APIs.
-- High-concurrency, IO-bound workloads with some blocking (offloaded).
-- Event-driven microservices.
+- High-latency, high-concurrency IO APIs (e.g., SOAP-to-JSON)
+- Streaming/event-driven APIs
 
 ---
 
 ### Vert.x
 
-#### 1. Overview
+#### Overview
 
-Vert.x is a toolkit for building reactive applications on the JVM. It uses a small number of event loop threads and offloads blocking operations to worker pools.
+- **Technology:** Event-driven, polyglot, toolkit for building reactive apps
+- **Execution:** Event loops (Netty), async all the way
 
-#### 2. Internal Execution Model
+#### Internal Execution Model
 
-- Event loop (single-threaded per core).
-- Blocking operations offloaded to worker threads.
+- Event loop threads handle network IO, user code
+- Blocking code must be explicitly offloaded to worker pools
 
-#### 3. Threading
+#### Threading
 
-- Event loops (few per core).
-- Worker pool for blocking IO.
+- **Event Loop:** ~2x core count
+- **Worker Pool:** For legacy/blocking IO
 
-#### 4. Blocking vs. Non-blocking IO
+#### Blocking vs. Non-blocking IO
 
-- Pure non-blocking is optimal.
-- Blocking (like SOAP) must use `executeBlocking`.
+- **Non-blocking IO:** Highly efficient if all code is async
+- **Blocking IO:** Handled by worker threads
 
-#### 5. Sequence Diagram
+#### Sequence Diagram
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant EventLoop
-    participant Worker
-    participant Kernel_Thread
-    participant SOAP_Service
+    participant WorkerThread
+    participant ThirdPartySOAP
 
     Client->>EventLoop: HTTP Request
-    EventLoop->>Worker: executeBlocking(SOAP call)
-    Worker->>Kernel_Thread: Block on SOAP IO
-    Kernel_Thread->>SOAP_Service: SOAP Request
-    SOAP_Service-->>Kernel_Thread: SOAP Response (XML)
-    Kernel_Thread-->>Worker: Unblock
-    Worker->>EventLoop: Transform to JSON, respond
-    EventLoop-->>Client: HTTP Response (JSON)
+    EventLoop->>WorkerThread: Offload blocking SOAP call
+    WorkerThread->>ThirdPartySOAP: SOAP HTTP Call
+    ThirdPartySOAP-->>WorkerThread: SOAP Response
+    WorkerThread->>EventLoop: Callback with response
+    EventLoop->>Client: HTTP Response
 ```
+- **Blocking Point:** Worker thread if blocking SOAP client is used
 
-#### 6. Request Lifecycle (SOAP-to-JSON)
+#### Request Lifecycle (SOAP-to-JSON)
 
-```java
-router.get("/data").handler(ctx -> {
-    vertx.<Map<String, Object>>executeBlocking(promise -> {
-        String xml = callSoapServiceBlocking();
-        promise.complete(parseXmlToJson(xml));
-    }, res -> ctx.response().end(toJson(res.result())));
-});
-```
+- Non-blocking client: full event loop
+- Blocking (legacy) client: worker thread
 
-#### 7. Resource Utilization
+#### Resource Utilization
 
-- Event loop: minimal CPU, never blocked.
-- Worker threads: bounded pool, handles blocking IO.
+- **CPU:** Event loop efficient, worker pool size limits blocking IO scaling
+- **Memory:** Low unless many workers
 
-#### 8. Kubernetes Sizing
+#### Kubernetes Sizing Calculation
 
-- Size worker pool for expected concurrency (same as WebFlux boundedElastic).
-- Pods: similar calculations.
+- **Concurrency:** Event loop can handle 10,000s, workers for blocking
+- **Pods needed:** If blocking SOAP, same as Quarkus RESTEasy Reactive (~12 pods)
 
-#### 9. Media Type Performance
+#### Performance with Media Types
 
-| Media Type | Support | Notes                         |
-|------------|---------|------------------------------|
-| JSON, XML  | ✔       | Native, fast                 |
-| Protobuf   | ✔       | Needs extension              |
-| Streaming  | ✔       | EventBus, streams supported  |
+| Media Type        | Support | Latency | Memory | Notes |
+|-------------------|---------|---------|--------|-------|
+| JSON, XML         | ✔️      | Low     | Low    | |
+| Protobuf, CBOR    | ✔️      | Low     | Low    | |
+| Images/PDF        | ✔️      | Low     | Low    | |
+| NDJSON/EventStream| ✔️      | Low     | Low    | |
+| Multipart         | ✔️      | Low     | Low    | |
+| YAML, Atom, RSS   | ✔️      | Low     | Low    | |
+| GraphQL           | ⚠️      | Low     | Low    | Needs extra libs |
 
-#### 10. Pros and Cons
+#### Pros and Cons
 
-| Pros                   | Cons                            |
-|------------------------|---------------------------------|
-| Scalable, efficient    | Must offload blocking IO        |
-| Polyglot               | Not as mature as Spring         |
-| Event-driven           | Complex for newcomers           |
+| Pros                                      | Cons                                  |
+|-------------------------------------------|---------------------------------------|
+| Handles high concurrency and streaming    | Async code can be complex to manage   |
+| Polyglot, flexible                        | Blocking IO needs careful offloading  |
 
-#### 11. Best Use Cases
+#### Best Use Cases
 
-- Event-driven, non-blocking microservices.
-- APIs with mixed blocking/non-blocking workloads.
+- Real-time, streaming, event-driven APIs
+- High-latency IO if using non-blocking clients
 
 ---
 
 ### gRPC
 
-#### 1. Overview
+#### Overview
 
-gRPC is a high-performance, open-source RPC framework using HTTP/2 and Protocol Buffers. It’s fully non-blocking and designed for low-latency, high-throughput inter-service communication.
+- **Technology:** HTTP/2, Protobuf serialization, async by default
+- **Execution:** Event loop, async handlers
 
-#### 2. Internal Execution Model
+#### Internal Execution Model
 
-- Netty-based, async/non-blocking.
-- Application code can be blocking or async.
+- Netty event loops for network
+- Async handlers, streaming via HTTP/2
 
-#### 3. Threading
+#### Threading
 
-- Few Netty event loops.
-- Blocking code must be offloaded to worker threads.
+- **Event Loop:** ~core count
+- **Handlers:** Async, no thread per request
 
-#### 4. Blocking vs. Non-blocking IO
+#### Blocking vs. Non-blocking IO
 
-- gRPC core is non-blocking.
-- Blocking SOAP call → must use thread pool.
+- **Non-blocking IO:** Efficient if all handlers are async
+- **Blocking IO:** Must offload to worker pool
 
-#### 5. Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    participant gRPC_Client
-    participant Netty_EventLoop
-    participant Worker
-    participant Kernel_Thread
-    participant SOAP_Service
-
-    gRPC_Client->>Netty_EventLoop: gRPC Request
-    Netty_EventLoop->>Worker: Offload blocking SOAP call
-    Worker->>Kernel_Thread: Block on SOAP IO
-    Kernel_Thread->>SOAP_Service: SOAP Request
-    SOAP_Service-->>Kernel_Thread: SOAP Response (XML)
-    Kernel_Thread-->>Worker: Unblock
-    Worker->>Netty_EventLoop: Transform to Protobuf/JSON, respond
-    Netty_EventLoop-->>gRPC_Client: gRPC Response
-```
-
-#### 6. Request Lifecycle (SOAP-to-JSON)
-
-```java
-@Override
-public void getData(Request req, StreamObserver<Response> resp) {
-    Executors.newSingleThreadExecutor().submit(() -> {
-        String xml = callSoapServiceBlocking();
-        resp.onNext(transform(xml));
-        resp.onCompleted();
-    });
-}
-```
-
-#### 7. Resource Utilization
-
-- Event loop: minimal.
-- Worker threads: as needed for blocking IO.
-
-#### 8. Kubernetes Sizing
-
-- Similar to WebFlux/Vert.x for blocking IO.
-- gRPC is not ideal for browser clients (needs HTTP/2), but excels for service-to-service.
-
-#### 9. Media Type Performance
-
-| Media Type         | Support | Notes                              |
-|--------------------|---------|------------------------------------|
-| Protobuf           | ✔       | Native, fastest                    |
-| JSON, XML          | ✔       | Needs marshalling                  |
-| Streaming          | ✔       | Bi-directional streams             |
-| GraphQL, YAML      | ✖       | Not native                         |
-| PDF, images        | ✔       | Byte streams                       |
-
-#### 10. Pros and Cons
-
-| Pros                        | Cons                         |
-|-----------------------------|------------------------------|
-| High performance, HTTP/2    | Not browser/client friendly  |
-| Bi-directional streaming    | Schema-first (Protobuf)      |
-| Excellent for internal APIs | Less flexible media types    |
-
-#### 11. Best Use Cases
-
-- Internal microservices, high throughput, low-latency.
-- Service-to-service with Protobuf or binary data.
-
----
-
-### GraphQL
-
-#### 1. Overview
-
-GraphQL exposes a flexible query language over HTTP. Common Java servers: graphql-java, Spring GraphQL, DGS.
-
-#### 2. Internal Execution Model
-
-- Usually built on top of WebFlux or MVC.
-- Request parsing, field resolvers, optional async.
-
-#### 3. Threading
-
-- Depends on underlying transport (MVC: thread-per-request, WebFlux: event loop).
-
-#### 4. Blocking vs. Non-blocking IO
-
-- Field resolvers can be async (CompletableFuture).
-- Blocking IO must be offloaded if using reactive backend.
-
-#### 5. Sequence Diagram
+#### Sequence Diagram
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant Server
-    participant (Virtual) Thread or EventLoop
-    participant Worker/Kernel_Thread
-    participant SOAP_Service
+    participant EventLoop
+    participant SOAPClient
+    participant ThirdPartySOAP
 
-    Client->>Server: GraphQL Query
-    Server->>(Virtual) Thread or EventLoop: Parse & plan
-    (Virtual) Thread or EventLoop->>Worker/Kernel_Thread: SOAP call per field (blocking)
-    Worker/Kernel_Thread->>SOAP_Service: SOAP Request
-    SOAP_Service-->>Worker/Kernel_Thread: SOAP Response (XML)
-    Worker/Kernel_Thread-->>(Virtual) Thread or EventLoop: Unblock
-    (Virtual) Thread or EventLoop->>Server: Aggregate, serialize JSON
-    Server-->>Client: HTTP Response (JSON)
+    Client->>EventLoop: gRPC Request
+    EventLoop->>SOAPClient: Async SOAP call
+    SOAPClient->>ThirdPartySOAP: Non-blocking HTTP Call
+    ThirdPartySOAP-->>SOAPClient: SOAP Response
+    SOAPClient->>EventLoop: Callback with response
+    EventLoop->>Client: gRPC Response
+```
+- **No thread blocked on IO if async SOAP client is used**
+
+#### Request Lifecycle (SOAP-to-JSON)
+
+1. gRPC request handled by event loop
+2. Async SOAP client calls third-party
+3. On response, transforms, returns
+
+#### Resource Utilization
+
+- **CPU:** Very efficient
+- **Memory:** Low
+- **Threads:** Event loop only
+
+#### Kubernetes Sizing Calculation
+
+- 2–3 pods (CPU/network bound)
+
+#### Performance with Media Types
+
+| Media Type        | Support | Latency | Memory | Notes |
+|-------------------|---------|---------|--------|-------|
+| Protobuf, CBOR    | ✔️      | Low     | Low    | Native |
+| JSON, XML         | ⚠️      | Low     | Low    | Needs conversion |
+| Images/PDF        | ✔️      | Low     | Low    | Streaming |
+| NDJSON/EventStream| ✔️      | Low     | Low    | Streaming |
+| GraphQL           | ❌      | N/A     | N/A    | Not typical |
+| Others            | ⚠️      | Low     | Low    | Needs marshallers |
+
+#### Pros and Cons
+
+| Pros                                             | Cons                        |
+|--------------------------------------------------|-----------------------------|
+| Very efficient, streaming, HTTP/2, multiplexing  | Not suited for browser APIs |
+| Strong schema (Protobuf)                         | Media type flexibility limited |
+
+#### Best Use Cases
+
+- Microservices, backend-to-backend, streaming APIs
+
+---
+
+### GraphQL (Java)
+
+#### Overview
+
+- **Technology:** Query language, single endpoint, resolver-based execution
+- **Execution:** Depends on server (servlet/async/event loop)
+
+#### Internal Execution Model
+
+- Request parsed, resolvers called (may be async or blocking)
+- Underlying execution can be blocking/async
+
+#### Threading
+
+- **Depends:** Servlet (blocking), Async (event loop)
+
+#### Blocking vs. Non-blocking IO
+
+- **Depends:** Async GraphQL engine (e.g., DGS, SPQR) can use event loop; otherwise blocking
+
+#### Sequence Diagram (Async)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant EventLoop
+    participant Resolver
+    participant ThirdPartySOAP
+
+    Client->>EventLoop: GraphQL Query
+    EventLoop->>Resolver: Async resolve field
+    Resolver->>ThirdPartySOAP: SOAP Call (async or blocking)
+    ThirdPartySOAP-->>Resolver: SOAP Response
+    Resolver->>EventLoop: Field value callback
+    EventLoop->>Client: GraphQL Response
 ```
 
-#### 6. Request Lifecycle (SOAP-to-JSON)
+#### Request Lifecycle (SOAP-to-JSON)
 
+- Query parsed, fields resolved (may trigger SOAP call per field)
+- Transformed, assembled, returned
+
+#### Resource Utilization
+
+- **Depends:** If async, very efficient; if blocking, like servlet
+
+#### Kubernetes Sizing Calculation
+
+- **Async:** 2–3 pods
+- **Blocking:** ~12 pods
+
+#### Performance with Media Types
+
+| Media Type        | Support | Latency | Memory | Notes |
+|-------------------|---------|---------|--------|-------|
+| GraphQL           | ✔️      | Low     | Low    | Native |
+| JSON              | ✔️      | Low     | Low    | |
+| Protobuf, CBOR    | ⚠️      | Low     | Low    | Not native |
+| Others            | ⚠️      | Low     | Low    | Needs custom scalar/resolver |
+
+#### Pros and Cons
+
+| Pros                                           | Cons                              |
+|------------------------------------------------|-----------------------------------|
+| Flexible queries, single endpoint              | N+1 query problem, careful resolver design needed |
+| Good for frontend/backends                     | May not match REST semantics      |
+| Efficient if async resolvers                   |                                  |
+
+#### Best Use Cases
+
+- Aggregate APIs, flexible queries, frontend-driven APIs
+
+---
+
+## Cross-Model Comparison
+
+### Kubernetes Sizing
+
+| Model                         | Blocking IO Approach    | Threads per Pod | Pods Needed | Notes                         |
+|-------------------------------|------------------------|-----------------|------------|-------------------------------|
+| Traditional MVC (Servlet)     | Blocking               | ~300            | 16         | Thread/memory limited         |
+| MVC + Virtual Threads         | Virtual Threads        | ~5000           | 2–3        | Efficient; CPU-bound          |
+| RESTEasy Reactive/Vert.x      | Worker Pool            | ~400            | 12         | Blocking IO on worker pool    |
+| Spring WebFlux                | Pure async             | ~8              | 2–3        | Event loop only               |
+| gRPC                          | Pure async             | ~8              | 2–3        | Event loop only               |
+| GraphQL (async)               | Pure async             | ~8              | 2–3        | Depends on resolver design    |
+| GraphQL (blocking)            | Blocking               | ~400            | 12         | If resolvers block            |
+
+### Performance Comparison by Media Type
+
+| Media Type                 | MVC   | MVC+VT | Quarkus Reactive | WebFlux | Vert.x | gRPC   | GraphQL |
+|----------------------------|-------|--------|------------------|---------|--------|--------|---------|
+| JSON                       | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ⚠️     | ✔️      |
+| XML                        | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ⚠️     | ⚠️      |
+| Protobuf                   | ⚠️    | ⚠️     | ✔️               | ✔️      | ✔️     | ✔️     | ⚠️      |
+| CBOR                       | ⚠️    | ⚠️     | ✔️               | ✔️      | ✔️     | ✔️     | ⚠️      |
+| NDJSON                     | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ✔️     | ⚠️      |
+| PDF, Images                | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ✔️     | ⚠️      |
+| Multipart                  | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ⚠️     | ⚠️      |
+| YAML, Atom, RSS            | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ⚠️     | ⚠️      |
+| GraphQL                    | ⚠️    | ⚠️     | ⚠️               | ✔️      | ⚠️     | ❌     | ✔️      |
+| Event-Stream               | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ✔️     | ✔️      |
+| Plain Text, Markdown       | ✔️    | ✔️     | ✔️               | ✔️      | ✔️     | ⚠️     | ✔️      |
+
+Legend:  
+✔️ = Native/Good, ⚠️ = Possible with extra libs, ❌ = Not supported
+
+### Summary Table & Recommendation Matrix
+
+| Scenario                        | Best Model(s)                  | Rationale                                  |
+|----------------------------------|-------------------------------|--------------------------------------------|
+| High-latency IO, high concurrency| Spring WebFlux, Vert.x, gRPC  | Async, event loop, minimal resource usage  |
+| Blocking IO, legacy code         | MVC+Virtual Threads           | Simple migration, scales with Loom         |
+| Streaming/event APIs             | WebFlux, Vert.x, gRPC         | Built-in support, efficient                |
+| Multiple media types             | WebFlux, Quarkus, Vert.x      | Broad codec support                        |
+| GraphQL APIs                     | WebFlux, Async GraphQL        | Async resolvers, scalable                  |
+| SOAP-to-JSON transformation      | WebFlux, MVC+Virtual Threads  | Async: efficient, VT: easy migration       |
+
+---
+
+## Code Snippets
+
+**Spring WebFlux (SOAP-to-JSON, non-blocking):**
 ```java
-public class QueryResolver implements GraphQLQueryResolver {
-    public CompletableFuture<Map<String, Object>> getData() {
-        return CompletableFuture.supplyAsync(() -> {
-            String xml = callSoapServiceBlocking();
-            return parseXmlToJson(xml);
-        });
-    }
+Mono<SoapResponse> callSoap() {
+    return webClient.post()
+        .bodyValue(request)
+        .retrieve()
+        .bodyToMono(SoapResponse.class);
+}
+
+Mono<JsonResponse> handleRequest() {
+    return callSoap()
+        .map(this::transformToJson);
 }
 ```
 
-#### 7. Resource Utilization
-
-- Depends on transport/execution (see previous models).
-- Multiple field resolvers per request may increase thread usage.
-
-#### 8. Kubernetes Sizing
-
-- Similar to WebFlux/MVC, but field resolver fan-out may require more threads.
-
-#### 9. Media Type Performance
-
-| Media Type  | Support | Notes                        |
-|-------------|---------|------------------------------|
-| JSON        | ✔       | Native                       |
-| XML         | ✖       | Not native                   |
-| Protobuf    | ✖       | Not native                   |
-| GraphQL     | ✔       | Native                       |
-| Streaming   | ✔ (subscriptions) | Event streams       |
-
-#### 10. Pros and Cons
-
-| Pros                            | Cons                                  |
-|----------------------------------|---------------------------------------|
-| Flexible queries, strong schema  | Only JSON, chatty for simple APIs     |
-| Aggregates multiple sources      | N+1 problem, field resolver overhead  |
-| Supports subscriptions          | More complex to tune for blocking IO  |
-
-#### 11. Best Use Cases
-
-- APIs where clients need control over data shape.
-- Aggregating multiple backends.
-- Streaming/subscription APIs.
-
----
-
-## Cross-Model Media Type Performance Comparison
-
-| Media Type                 | Spring MVC | MVC + VT | RESTEasy | RESTEasy Reactive | WebFlux | Vert.x | gRPC   | GraphQL |
-|----------------------------|------------|----------|----------|-------------------|---------|--------|--------|---------|
-| APPLICATION_JSON           | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✔️     | ✔️      |
-| APPLICATION_XML            | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✔️     | ✖️      |
-| APPLICATION_CBOR           | ✔️(mod)    | ✔️(mod)  | ✔️(mod)  | ✔️(mod)           | ✔️(mod) | ✔️(mod)| ✖️     | ✖️      |
-| APPLICATION_PROTOBUF       | ✖️(mod)    | ✖️(mod)  | ✔️(mod)  | ✔️(mod)           | ✔️(mod) | ✔️(mod)| ✔️     | ✖️      |
-| APPLICATION_GRAPHQL        | ✖️         | ✖️       | ✖️       | ✖️                | ✖️     | ✖️    | ✖️    | ✔️      |
-| APPLICATION_NDJSON         | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✖️     | ✖️      |
-| APPLICATION_YAML           | ✔️(mod)    | ✔️(mod)  | ✔️(mod)  | ✔️(mod)           | ✔️(mod) | ✔️(mod)| ✖️     | ✖️      |
-| APPLICATION_PDF            | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✔️     | ✖️      |
-| IMAGE_*                    | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✔️     | ✖️      |
-| MULTIPART_FORM_DATA        | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✖️     | ✖️      |
-| TEXT_EVENT_STREAM          | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✔️     | ✔️      |
-| TEXT_MARKDOWN              | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✖️     | ✖️      |
-| APPLICATION_RSS_XML        | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✖️     | ✖️      |
-| APPLICATION_ATOM_XML       | ✔️         | ✔️       | ✔️       | ✔️                | ✔️      | ✔️     | ✖️     | ✖️      |
-
-- ✔️: Native or easy plugin; (mod): needs module; ✖️: Not applicable/natively supported.
-
-**Performance Notes:**
-- **JSON/Protobuf/CBOR:** Binary (Protobuf/CBOR) is fastest for serialization/deserialization and wire size; JSON is ubiquitous but slower.
-- **XML/YAML/Markdown:** Heavier parsing, higher CPU/memory.
-- **Images/PDF/Multipart:** Streamed/buffered, CPU-light but memory-intensive if not chunked.
-- **Event Streams/NDJSON:** WebFlux, Vert.x, and gRPC excel.
-- **GraphQL:** Only JSON; other types require custom extensions.
-
----
-
-## Summary Table & Recommendations
-
-### Recommendation Matrix
-
-| Load/Latency/Type   | Best Model(s)                  | Why                                              |
-|---------------------|-------------------------------|--------------------------------------------------|
-| High-latency IO     | Spring MVC (Virtual Threads), WebFlux, Vert.x | Efficient thread usage, easy blocking code (Loom), or native async |
-| Streaming/Event API | WebFlux, Vert.x, gRPC         | Best for reactive/event-driven, backpressure      |
-| Protobuf/Binary     | gRPC, RESTEasy Reactive       | Native support, fast wire format                  |
-| JSON/XML            | Any (with Loom prefer virtual threads, else WebFlux/Vert.x) | Universal, good support everywhere               |
-| Mixed Media         | Vert.x, WebFlux, Quarkus      | Polyglot, plugin support, scalable                |
-| Resource-limited    | MVC+VT, WebFlux, Vert.x       | Minimal platform threads, high concurrency        |
-| GraphQL             | Spring GraphQL, DGS           | Flexible queries, subscriptions                   |
-
-### Sizing Example (per pod, 1-core, 4GB RAM, 4-10s latency)
-
-| Model             | Max Concurrent | Threads Needed      | Pods for Peak (900 rps) |
-|-------------------|---------------|---------------------|-------------------------|
-| Spring MVC        | ~200          | 200                 | 45                      |
-| MVC + Loom        | ~9000         | 9000 virtual        | 1–2                     |
-| WebFlux/Vert.x    | ~9000         | ~9000 worker/elastic| 1–2                     |
-| RESTEasy Reactive | ~9000         | ~9000 worker        | 1–2                     |
-| gRPC              | ~9000         | ~9000 worker        | 1–2                     |
-| GraphQL           | Dep. on impl  | (see above)         | (see above)             |
-
----
-
-## Conclusion
-
-- **Spring MVC (Virtual Threads):** Best for drop-in scalability on blocking IO, legacy codebases.
-- **WebFlux/Vert.x:** Ideal for new, reactive, streaming, or mixed workloads.
-- **gRPC:** Best for internal, high-performance, Proto-based APIs.
-- **GraphQL:** Great for flexible, aggregated data APIs—watch thread usage per field.
-- **Pod Sizing:** With Loom, Vert.x, or WebFlux, 1–2 pods can suffice for 900 rps with 4–10s latency, thanks to efficient thread usage. Traditional thread-per-request models require 20–50x more pods.
+**MVC with Virtual Threads (SOAP-to-JSON):**
+```java
+@GetMapping("/api")
+public JsonResponse handleRequest() {
+    SoapResponse soapResp = callSoapSync(); // blocks, but on virtual thread
+    return transformToJson(soapResp);
+}
+```
 
 ---
 
 ## References
 
-- [OpenJDK Loom](https://openjdk.org/projects/loom/)
-- [Spring WebFlux Documentation](https://docs.spring.io/spring-framework/docs/current/reference/html/web-reactive.html)
-- [Quarkus RESTEasy Reactive Guide](https://quarkus.io/guides/resteasy-reactive)
+- [Project Loom (Virtual Threads)](https://openjdk.org/projects/loom/)
+- [Spring WebFlux Reference](https://docs.spring.io/spring-framework/docs/current/reference/html/web-reactive.html)
+- [Quarkus RESTEasy Reactive](https://quarkus.io/guides/resteasy-reactive)
 - [Vert.x Documentation](https://vertx.io/docs/)
-- [gRPC Java Guide](https://grpc.io/docs/languages/java/)
-- [Spring GraphQL](https://spring.io/projects/spring-graphql)
-- [Real-world benchmarks: TechEmpower](https://www.techempower.com/benchmarks/#section=data-r21)
+- [gRPC Java](https://grpc.io/docs/languages/java/)
+- [GraphQL Java](https://www.graphql-java.com/)
+- [Real-world reactive benchmarks](https://www.techempower.com/benchmarks/)
+- [Kubernetes Resource Requests & Limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
 
 ---
 
-```
+# Conclusion
+
+- **Spring WebFlux, Vert.x, and gRPC** lead for high-latency, high-concurrency IO due to their non-blocking, async execution.
+- **Spring MVC with Virtual Threads** offers a near drop-in, scalable solution for legacy/blocking codebases.
+- **Quarkus RESTEasy Reactive** and **GraphQL (async)** are excellent for hybrid use-cases.
+- **Traditional MVC** is not suitable for high-latency, high-concurrency IO workloads due to resource constraints.
+- **Media type support** is broadest in WebFlux, Vert.x, and Quarkus; gRPC is best for Protobuf/binary, less so for “web” types.
+- **Kubernetes sizing:** Async/reactive models allow dramatically fewer pods for the same throughput on IO-bound workloads.
+
+| Model                  | High-Latency IO | Streaming APIs | Media Type Support | Resource Efficiency |
+|------------------------|-----------------|---------------|--------------------|--------------------|
+| Spring WebFlux         | ⭐⭐⭐⭐⭐          | ⭐⭐⭐⭐⭐        | ⭐⭐⭐⭐             | ⭐⭐⭐⭐⭐             |
+| MVC + Virtual Threads  | ⭐⭐⭐⭐           | ⭐⭐⭐          | ⭐⭐⭐⭐             | ⭐⭐⭐⭐              |
+| Vert.x                 | ⭐⭐⭐⭐⭐          | ⭐⭐⭐⭐⭐        | ⭐⭐⭐⭐             | ⭐⭐⭐⭐⭐             |
+| Quarkus RESTEasyReactive| ⭐⭐⭐⭐          | ⭐⭐⭐⭐         | ⭐⭐⭐⭐             | ⭐⭐⭐⭐              |
+| gRPC                   | ⭐⭐⭐⭐⭐          | ⭐⭐⭐⭐⭐        | ⭐⭐               | ⭐⭐⭐⭐⭐             |
+| GraphQL (Async)        | ⭐⭐⭐⭐⭐          | ⭐⭐⭐⭐         | ⭐⭐⭐⭐             | ⭐⭐⭐⭐⭐             |
+| Traditional MVC        | ⭐              | ⭐            | ⭐⭐⭐⭐⭐            | ⭐                 |
+
+---
+
+_This guide is modular—copy/paste sections for architectural docs or migration plans!_
