@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-provisioning:/etc/grafana/provisioning
+
+  # Application containers (ports should be unique)
+  spring-mvc-traditional:
+    build: ./spring-mvc-traditional
+    ports:
+      - "8081:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+  spring-mvc-virtual-threads:
+    build: ./spring-mvc-virtual-threads
+    ports:
+      - "8082:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+  spring-webflux:
+    build: ./spring-webflux
+    ports:
+      - "8083:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+  spring-grpc-virtual-threads:
+    build: ./spring-grpc-virtual-threads
+    ports:
+      - "8084:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+  graphql:
+    build: ./graphql
+    ports:
+      - "8085:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+  vertx-stub:
+    build: ./vertx-stub
+    ports:
+      - "8086:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+  quarkus-resteasy-stub:
+    build: ./quarkus-resteasy-stub
+    ports:
+      - "8087:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+  quarkus-resteasy-reactive-stub:
+    build: ./quarkus-resteasy-reactive-stub
+    ports:
+      - "8088:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MONGODB_URI=mongodb://mongodb:27017/test
+    depends_on:
+      - mongodb
+      - prometheus
+
+volumes:
+  mongo_data:

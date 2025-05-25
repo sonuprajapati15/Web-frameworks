@@ -1,0 +1,56 @@
+type Airline {
+    logo: String
+    name: String
+}
+
+type Flight {
+    aircraftType: String
+    airline: Airline
+    arrivalTime: String
+    baggage: String
+    boardingTime: String
+    cabinClass: String
+    cancellationPolicy: String
+    changePolicy: String
+    checkInCounter: String
+    covidSafety: String
+    date: String
+    departureTime: String
+    duration: String
+    ecoFriendly: String
+    entertainment: String
+    extraLegroom: String
+    fareClass: String
+    flightId: String
+    flightNumber: String
+    flightType: String
+    from: String
+    gate: String
+    infantPolicy: String
+    lastUpdated: String
+    layovers: [String]
+    loungeAccess: String
+    meal: String
+    onTimePerformance: String
+    petPolicy: String
+    powerOutlet: String
+    price: Int
+    priorityBoarding: String
+    rating: Float
+    recliningAngle: String
+    reviewsCount: Int
+    seatPitch: String
+    seatType: String
+    seatWidth: String
+    terminal: String
+    to: String
+    totalStops: Int
+    usbPort: String
+    vendor_logo: String
+    vendor_name: String
+    wifi: String
+}
+
+type Query {
+    flights: [Flight]
+}

@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'spring-apps'
+    static_configs:
+      - targets: ['spring-mvc-traditional:8080', 'spring-mvc-virtual-threads:8080', 'spring-webflux:8080', 'spring-grpc-virtual-threads:8080', 'graphql:8080', 'vertx-stub:8080', 'quarkus-resteasy-stub:8080', 'quarkus-resteasy-reactive-stub:8080']
+    metrics_path: /actuator/prometheus
+
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['mongodb:9216']
+    # requires MongoDB exporter for Prometheus, add to docker-compose if desired

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <annotationProcessing>
+      <profile name="Maven default annotation processors profile" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="spring-webflux" />
+        <module name="spring-grpc-virtual-threads" />
+        <module name="quarkus-resteasy-reactive-stub" />
+        <module name="quarkus-resteasy-stub" />
+        <module name="jmeter-loadtest" />
+        <module name="spring-mvc-virtual-threads" />
+        <module name="spring-mvc-traditional" />
+        <module name="graphql" />
+        <module name="vertx-stub" />
+      </profile>
+    </annotationProcessing>
+  </component>
+</project>

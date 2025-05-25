@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package flight;
+
+option java_package = "com.example.springgrpcvirtualthreads.grpc";
+option java_multiple_files = true;
+
+message Airline {
+  string logo = 1;
+  string name = 2;
+}
+
+message Flight {
+  string aircraftType = 1;
+  Airline airline = 2;
+  string arrivalTime = 3;
+  string baggage = 4;
+  string boardingTime = 5;
+  string cabinClass = 6;
+  string cancellationPolicy = 7;
+  string changePolicy = 8;
+  string checkInCounter = 9;
+  string covidSafety = 10;
+  string date = 11;
+  string departureTime = 12;
+  string duration = 13;
+  string ecoFriendly = 14;
+  string entertainment = 15;
+  string extraLegroom = 16;
+  string fareClass = 17;
+  string flightId = 18;
+  string flightNumber = 19;
+  string flightType = 20;
+  string from = 21;
+  string gate = 22;
+  string infantPolicy = 23;
+  string lastUpdated = 24;
+  repeated string layovers = 25;
+  string loungeAccess = 26;
+  string meal = 27;
+  string onTimePerformance = 28;
+  string petPolicy = 29;
+  string powerOutlet = 30;
+  int32 price = 31;
+  string priorityBoarding = 32;
+  double rating = 33;
+  string recliningAngle = 34;
+  int32 reviewsCount = 35;
+  string seatPitch = 36;
+  string seatType = 37;
+  string seatWidth = 38;
+  string terminal = 39;
+  string to = 40;
+  int32 totalStops = 41;
+  string usbPort = 42;
+  string vendor_logo = 43;
+  string vendor_name = 44;
+  string wifi = 45;
+}
+
+message FlightsResponse {
+  repeated Flight flights = 1;
+}
+
+service FlightService {
+  rpc GetFlights (google.protobuf.Empty) returns (FlightsResponse);
+  rpc StreamFlights (google.protobuf.Empty) returns (stream Flight);
+}
