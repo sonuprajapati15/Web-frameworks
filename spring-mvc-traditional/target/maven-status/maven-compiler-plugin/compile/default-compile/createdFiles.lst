@@ -1,7 +1,7 @@
-com/example/springmvctraditional/controller/FlightController.class
-com/example/springmvctraditional/model/ApiCallLog.class
-com/example/springmvctraditional/service/FlightService.class
-com/example/springmvctraditional/SpringMvcTraditionalApplication.class
-com/example/springmvctraditional/model/Flight.class
-com/example/springmvctraditional/model/Airline.class
-com/example/springmvctraditional/repository/ApiCallLogRepository.class
+com\example\springmvctraditional\controller\FlightController.class
+com\example\springmvctraditional\SpringMvcTraditionalApplication.class
+com\example\springmvctraditional\model\Airline.class
+com\example\springmvctraditional\model\Flight.class
+com\example\springmvctraditional\repository\ApiCallLogRepository.class
+com\example\springmvctraditional\service\FlightService.class
+com\example\springmvctraditional\model\ApiCallLog.class

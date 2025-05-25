@@ -2,7 +2,7 @@ package com.example.springmvcvirtualthreads.controller;
 
 import com.example.springmvcvirtualthreads.model.Flight;
 import com.example.springmvcvirtualthreads.service.FlightService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -12,10 +12,10 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/flights")
-@RequiredArgsConstructor
 public class FlightController {
 
-    private final FlightService flightService;
+    @Autowired
+    private FlightService flightService;
 
     @GetMapping
     public List<Flight> getFlights() {

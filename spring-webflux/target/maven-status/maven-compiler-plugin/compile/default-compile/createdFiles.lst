@@ -1,0 +1,7 @@
+com\example\springwebflux\model\Airline.class
+com\example\springwebflux\model\ApiCallLog.class
+com\example\springwebflux\SpringWebfluxApplication.class
+com\example\springwebflux\controller\FlightController.class
+com\example\springwebflux\service\FlightService.class
+com\example\springwebflux\repository\ApiCallLogRepository.class
+com\example\springwebflux\model\Flight.class

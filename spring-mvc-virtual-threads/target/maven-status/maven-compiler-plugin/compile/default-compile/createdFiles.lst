@@ -1,0 +1,7 @@
+com\example\springmvcvirtualthreads\SpringMvcVirtualThreadsApplication.class
+com\example\springmvcvirtualthreads\service\FlightService.class
+com\example\springmvcvirtualthreads\model\ApiCallLog.class
+com\example\springmvcvirtualthreads\controller\FlightController.class
+com\example\springmvcvirtualthreads\model\Airline.class
+com\example\springmvcvirtualthreads\model\Flight.class
+com\example\springmvcvirtualthreads\repository\ApiCallLogRepository.class

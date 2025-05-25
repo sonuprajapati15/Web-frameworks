@@ -3,7 +3,7 @@ package com.example.springgrpcvirtualthreads.service;
 import com.example.springgrpcvirtualthreads.model.ApiCallLog;
 import com.example.springgrpcvirtualthreads.model.Flight;
 import com.example.springgrpcvirtualthreads.repository.ApiCallLogRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -11,11 +11,11 @@ import java.util.Arrays;
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
 public class FlightService {
     private static final String THIRD_PARTY_URL = "http://localhost:8900/vendor/supplier/stream/flights";
 
-    private final ApiCallLogRepository logRepository;
+    @Autowired
+    private ApiCallLogRepository logRepository;
     private final RestTemplate restTemplate = new RestTemplate();
 
     public List<Flight> getFlights() {

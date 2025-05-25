@@ -1,9 +1,14 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" 
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://www.apache.org/xsd/maven-4.0.0.xsd">
+  <parent>
+    <groupId>com.example</groupId>
+    <artifactId>modern-java-server-models</artifactId>
+    <version>1.0-SNAPSHOT</version>
+  </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.example</groupId>
-  <artifactId>quarkus-resteasy-reactive-app</artifactId>
+  <artifactId>quarkus-resteasy-reactive-stub</artifactId>
   <version>1.0.0</version>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -20,6 +25,12 @@
         <version>${quarkus.platform.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <!-- https://mvnrepository.com/artifact/org.eclipse.microprofile.config/microprofile-config-api -->
+      <dependency>
+        <groupId>org.eclipse.microprofile.config</groupId>
+        <artifactId>microprofile-config-api</artifactId>
+        <version>3.1</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -43,16 +54,6 @@
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-config-yaml</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.jboss.resteasy.reactive</groupId>
-      <artifactId>resteasy-reactive-core</artifactId>
-      <version>4.11.2.Final</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.microprofile.config</groupId>
-      <artifactId>microprofile-config-api</artifactId>
-      <version>3.1.0</version>
     </dependency>
     <dependency>
       <groupId>io.smallrye.reactive</groupId>
@@ -84,3 +85,4 @@
     </plugins>
   </build>
 </project>
+

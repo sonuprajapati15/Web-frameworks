@@ -7,12 +7,16 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="spring-webflux" />
-        <module name="spring-grpc-virtual-threads" />
-        <module name="quarkus-resteasy-reactive-stub" />
-        <module name="quarkus-resteasy-stub" />
-        <module name="jmeter-loadtest" />
         <module name="spring-mvc-virtual-threads" />
         <module name="spring-mvc-traditional" />
+        <module name="quarkus-resteasy-app" />
+        <module name="quarkus-resteasy-reactive-app" />
+        <module name="vertx-app" />
+        <module name="spring-grpc-virtual-threads" />
+        <module name="quarkus-resteasy-reactive-stub" />
+        <module name="jmeter-loadtest-stub" />
+        <module name="quarkus-resteasy-stub" />
+        <module name="jmeter-loadtest" />
         <module name="graphql" />
         <module name="vertx-stub" />
       </profile>

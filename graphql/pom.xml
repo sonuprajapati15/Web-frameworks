@@ -36,12 +36,11 @@
       <scope>test</scope>
     </dependency>
     <!-- GraphQL Playground for easier testing (optional, dev only) -->
+    <!-- https://mvnrepository.com/artifact/com.graphql-java/graphql-java-spring-boot-starter-webmvc -->
     <dependency>
       <groupId>com.graphql-java</groupId>
-      <artifactId>graphql-java-spring-boot-starter-webmvc-playground</artifactId>
-      <version>1.0</version>
-      <scope>runtime</scope>
-      <optional>true</optional>
+      <artifactId>graphql-java-spring-boot-starter-webmvc</artifactId>
+      <version>2021-10-25T04-50-54-fbc162f</version>
     </dependency>
   </dependencies>
   <build>

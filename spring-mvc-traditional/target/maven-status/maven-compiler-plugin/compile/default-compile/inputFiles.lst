@@ -1,7 +1,7 @@
-/Users/spraja6/Documents/GitHub/Web-frameworks/spring-mvc-traditional/src/main/java/com/example/springmvctraditional/SpringMvcTraditionalApplication.java
-/Users/spraja6/Documents/GitHub/Web-frameworks/spring-mvc-traditional/src/main/java/com/example/springmvctraditional/model/ApiCallLog.java
-/Users/spraja6/Documents/GitHub/Web-frameworks/spring-mvc-traditional/src/main/java/com/example/springmvctraditional/service/FlightService.java
-/Users/spraja6/Documents/GitHub/Web-frameworks/spring-mvc-traditional/src/main/java/com/example/springmvctraditional/controller/FlightController.java
-/Users/spraja6/Documents/GitHub/Web-frameworks/spring-mvc-traditional/src/main/java/com/example/springmvctraditional/model/Flight.java
-/Users/spraja6/Documents/GitHub/Web-frameworks/spring-mvc-traditional/src/main/java/com/example/springmvctraditional/repository/ApiCallLogRepository.java
-/Users/spraja6/Documents/GitHub/Web-frameworks/spring-mvc-traditional/src/main/java/com/example/springmvctraditional/model/Airline.java
+C:\Users\santosh\Documents\GitHub\Web-frameworks\spring-mvc-traditional\src\main\java\com\example\springmvctraditional\model\Airline.java
+C:\Users\santosh\Documents\GitHub\Web-frameworks\spring-mvc-traditional\src\main\java\com\example\springmvctraditional\SpringMvcTraditionalApplication.java
+C:\Users\santosh\Documents\GitHub\Web-frameworks\spring-mvc-traditional\src\main\java\com\example\springmvctraditional\service\FlightService.java
+C:\Users\santosh\Documents\GitHub\Web-frameworks\spring-mvc-traditional\src\main\java\com\example\springmvctraditional\model\ApiCallLog.java
+C:\Users\santosh\Documents\GitHub\Web-frameworks\spring-mvc-traditional\src\main\java\com\example\springmvctraditional\repository\ApiCallLogRepository.java
+C:\Users\santosh\Documents\GitHub\Web-frameworks\spring-mvc-traditional\src\main\java\com\example\springmvctraditional\controller\FlightController.java
+C:\Users\santosh\Documents\GitHub\Web-frameworks\spring-mvc-traditional\src\main\java\com\example\springmvctraditional\model\Flight.java
